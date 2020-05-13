@@ -75,6 +75,27 @@ def init_parameters_momentum(fc_net, activate_function):
 
     return parameters, v
 
+def init_parameters_RMSProp(fc_net, activate_function):
+    # 1.定义一个字典，存放参数矩阵W1, b1, W2, b2, W3, b3, W4, b4
+    parameters = {}
+    layerNum = len(fc_net)
+    s = {}
+    for L in range(1, layerNum):
+        #parameters['W' + str(L)] = np.random.rand(fc_net[L], fc_net[L - 1]) * 0.01
+        if activate_function == "sigmoid":
+            parameters['W'+str(L)] = np.random.randn(fc_net[L], fc_net[L-1])*0.01
+        elif activate_function == "tanh":
+            parameters['W'+str(L)] = np.random.randn(fc_net[L], fc_net[L-1])*np.sqrt(1/fc_net[L-1]) # Xavier初始化，针对tanh函数
+        else:
+            parameters['W'+str(L)] = np.random.randn(fc_net[L], fc_net[L-1])*np.sqrt(2/fc_net[L-1])  # He初始化，针对ReLU函数
+        parameters['b'+str(L)] = np.zeros((fc_net[L], 1))
+        s['dW'+str(L)] = np.zeros((fc_net[L], fc_net[L-1]))
+        s['db'+str(L)] = np.zeros((fc_net[L], 1))
+        print("W"+str(L)+"="+str(parameters['W'+str(L)].shape))
+        print("b"+str(L)+"="+str(parameters['b'+str(L)].shape))
+
+    return parameters, s
+
 def sigmoid(Z):
     return 1/(1+np.exp(-Z))
 
@@ -249,6 +270,16 @@ def update_parameters_with_momentum(gradients, parameters, learningRate, v, mome
         parameters['b'+str(L)] = parameters['b'+str(L)] - learningRate*v['db'+str(L)]
     return parameters, v
 
+def update_parameters_with_RMSProp(gradients, parameters, learningRate, s, decay=0.9, epsilon=1e-8):
+    # w:=w-lr*dw; b:=b-lr*db
+    layerNum = len(parameters)//2
+    for L in range(1, layerNum+1):  # 遍历[1,2,3,4]
+        s['dW'+str(L)] = decay*s['dW'+str(L)] + (1-decay)*gradients['dW'+str(L)]**2
+        parameters['W'+str(L)] = parameters['W'+str(L)] - learningRate*gradients['dW'+str(L)]/np.sqrt(s['dW'+str(L)]+epsilon)
+        s['db'+str(L)] = decay*s['db'+str(L)] + (1-decay)*gradients['db'+str(L)]**2
+        parameters['b'+str(L)] = parameters['b'+str(L)] - learningRate*gradients['db'+str(L)]/np.sqrt(s['db'+str(L)]+epsilon)
+    return parameters, s
+
 def cut_data(train_set_x, train_set_y, batch_size=64):
     m = train_set_x.shape[1]
     # 1.打乱数据集
@@ -277,7 +308,8 @@ def cut_data(train_set_x, train_set_y, batch_size=64):
 def trainNet(fc_net, train_set_x, train_set_y, activate_func, isCheck=False, iterations=500, \
              learningRate=0.01):
     # 4.初始化参数
-    parameters, v = init_parameters_momentum(fc_net, activate_func)
+    #parameters, v = init_parameters_momentum(fc_net, activate_func)
+    parameters, s = init_parameters_RMSProp(fc_net, activate_func)
     # 5.前向计算：(1)z=wx+b;(2)a=f(z)
     costs = []  # 保存我们每次迭代计算得到的代价值
     # 将整批数据分割成多个小批次
@@ -294,7 +326,8 @@ def trainNet(fc_net, train_set_x, train_set_y, activate_func, isCheck=False, ite
             diff = gradient_check(train_set_x, train_set_y, gradient, parameters, activate_func, check_layer=0)
         # 8.根据梯度更新一次参数
         #parameters = update_parameters(gradient, parameters, learningRate)
-        parameters, v = update_parameters_with_momentum(gradient, parameters, learningRate, v)
+        #parameters, v = update_parameters_with_momentum(gradient, parameters, learningRate, v)
+        parameters, s = update_parameters_with_RMSProp(gradient, parameters, learningRate, s)
         if iteration>500 and iteration%2000 == 0:
             print("A1[:,1].mean=", np.mean(cache['A1'][:,1]), "; A[:,1]_std = ", np.std(cache['A1'][:,1]))  #统计某一列激活值的均值和标准差
             print("A2[:,1].mean=", np.mean(cache['A2'][:,1]), "; A[:,2]_std = ", np.std(cache['A2'][:,1]))  #统计某一列激活值的均值和标准差
@@ -316,12 +349,13 @@ def trainNet_minibatch(fc_net, train_set_x, train_set_y, activate_func, batch_si
              learningRate=0.01):
     # 4.初始化参数
     #parameters = init_parameters(fc_net, activate_func)
-    parameters, v = init_parameters_momentum(fc_net, activate_func)
+    #parameters, v = init_parameters_momentum(fc_net, activate_func)
+    parameters, s = init_parameters_RMSProp(fc_net, activate_func)
     # 5.前向计算：(1)z=wx+b;(2)a=f(z)
     costs = []  # 保存我们每次迭代计算得到的代价值
     # 将整批数据分割成多个小批次
-    train_set_cutted = cut_data(train_set_x, train_set_y, batch_size)
     for epoch in range(0, num_epoch):
+        train_set_cutted = cut_data(train_set_x, train_set_y, batch_size)
         for minibatch in train_set_cutted:  # 遍历所有批次，每个批次都更新一次参数，从而加快收敛速度
             mini_batch_X, mini_batch_Y = minibatch
             AL, cache = forward_pass(mini_batch_X, parameters, activate_func)  # AL=(1,209)
@@ -336,7 +370,8 @@ def trainNet_minibatch(fc_net, train_set_x, train_set_y, activate_func, batch_si
             #    diff = gradient_check(mini_batch_X, mini_batch_Y, gradient, parameters, check_layer=0)
             # 8.根据梯度更新一次参数
             # parameters = update_parameters(gradient, parameters, learningRate)
-            parameters, v = update_parameters_with_momentum(gradient, parameters, learningRate, v)
+            #parameters, v = update_parameters_with_momentum(gradient, parameters, learningRate, v)
+            parameters, s = update_parameters_with_RMSProp(gradient, parameters, learningRate, s)
         '''
         if iteration>500 and iteration%2000 == 0:
             print("A1[:,1].mean=", np.mean(cache['A1'][:,1]), "; A[:,1]_std = ", np.std(cache['A1'][:,1]))  #统计某一列激活值的均值和标准差
@@ -377,9 +412,9 @@ if __name__ == '__main__':
     #fc_net = [12288, 10, 1]
     activate_func = "tanh"
     #parameters = trainNet(fc_net, train_set_x, train_set_y, activate_func, isCheck=False, \
-    #                      iterations=12000, learningRate=0.1)
+    #                      iterations=8000, learningRate=0.1)
     parameters = trainNet_minibatch(fc_net, train_set_x, train_set_y, activate_func, batch_size=64, isCheck=False, \
-                          num_epoch=8000, learningRate=0.01)
+                          num_epoch=8000, learningRate=0.0001)
     predict(test_set_x, test_set_y,parameters, activate_func)
 
 
