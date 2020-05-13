@@ -36,14 +36,18 @@ def loadDataset():
 
     return train_set_x, train_set_y, test_set_x, test_set_y
 
-def init_parameters(fc_net):
+def init_parameters(fc_net, activate_function):
     # 1.定义一个字典，存放参数矩阵W1, b1, W2, b2, W3, b3, W4, b4
     parameters = {}
     layerNum = len(fc_net)
     for L in range(1, layerNum):
-        #parameters['W'+str(L)] = np.random.rand(fc_net[L], fc_net[L-1])*0.01
-        parameters['W'+str(L)] = np.random.rand(fc_net[L], fc_net[L-1])*np.sqrt(1/fc_net[L-1]) # Xavier初始化，针对tanh函数
-        #parameters['W'+str(L)] = np.random.rand(fc_net[L], fc_net[L-1])*np.sqrt(2/fc_net[L-1])  # He初始化，针对ReLU函数
+        #parameters['W' + str(L)] = np.random.rand(fc_net[L], fc_net[L - 1]) * 0.01
+        if activate_function == "sigmoid":
+            parameters['W'+str(L)] = np.random.randn(fc_net[L], fc_net[L-1])*0.01
+        elif activate_function == "tanh":
+            parameters['W'+str(L)] = np.random.randn(fc_net[L], fc_net[L-1])*np.sqrt(1/fc_net[L-1]) # Xavier初始化，针对tanh函数
+        else:
+            parameters['W'+str(L)] = np.random.randn(fc_net[L], fc_net[L-1])*np.sqrt(2/fc_net[L-1])  # He初始化，针对ReLU函数
         parameters['b'+str(L)] = np.zeros((fc_net[L], 1))
         print("W"+str(L)+"="+str(parameters['W'+str(L)].shape))
         print("b"+str(L)+"="+str(parameters['b'+str(L)].shape))
@@ -59,7 +63,7 @@ def ReLU(Z):
 def tanh(Z):
     return np.tanh(Z)
 
-def forward_pass(A0, parameters, active_func="ReLU"):   # 前向计算
+def forward_pass(A0, parameters, active_func):   # 前向计算
     A = A0
     cache = {}
     cache['A0'] = A0
@@ -89,7 +93,7 @@ def compute_cost(AL, Y):
     cost = (1/m)*np.sum((1/2)*(AL-Y)*(AL-Y))
     return cost
 
-def backward_pass(AL, parameters, cache, Y, activate_func="ReLU"):
+def backward_pass(AL, parameters, cache, Y, activate_func):
     m = Y.shape[1]  # 样本总数
     gradient = {}   # 保持各层参数梯度值
     layerNum = len(parameters)//2
@@ -100,7 +104,7 @@ def backward_pass(AL, parameters, cache, Y, activate_func="ReLU"):
         if activate_func == "sigmoid":
             dZL = np.dot(parameters['W'+str(L+1)].T, dZL)*(cache['A'+str(L)]*(1-cache['A'+str(L)]))
         elif activate_func == "tanh":   # dtanh/dz = 1-a^2
-            dZL = np.dot(parameters['W'+str(L+1).T], dZL)*(1-np.power(cache['A'+str(L)],2))
+            dZL = np.dot(parameters['W'+str(L+1)].T, dZL)*(1-np.power(cache['A'+str(L)],2))
         else:
             dZL = np.dot(parameters['W'+str(L+1)].T, dZL)*np.array(cache['Z'+str(L)]>0)
         gradient['dW'+str(L)] = (1/m)*np.dot(dZL,cache['A'+str(L-1)].T)
@@ -157,7 +161,7 @@ def vector_to_param_dict(vec, param_src):   # 列矩阵转参数字典，第一�
 # 梯度检验
 # 解析法：求得梯度解析表达式，通过这个表达式得到梯度（确切解）
 # 数值逼近（近似解）
-def gradient_check(A0, Y, gradient, parameters, check_layer, epsilon=1e-4, activate_func="ReLU"):
+def gradient_check(A0, Y, gradient, parameters, check_layer, activate_func, epsilon=1e-4):
     grad_vec = grad_dict_to_vector(gradient)    # 字典转列向量
     param_vec = param_dict_to_vector(parameters)
     param_num = param_vec.shape[0]  # 49182
@@ -200,7 +204,7 @@ def gradient_check(A0, Y, gradient, parameters, check_layer, epsilon=1e-4, activ
     # 余弦距离：主要用于表征两个向量之间方向的差异
     diff = np.sqrt(np.sum((grad_vec_slice-grad_vec_approach)**2))/ \
            (np.sqrt(np.sum((grad_vec_slice)**2))+np.sqrt(np.sum((grad_vec_approach)**2)))
-    if diff > 1e-2:
+    if diff > 1e-4:
         print("Maybe a mistake in your backward pass!!! diff=", diff)
     else:
         print("No mistake in your backward pass!!! diff=", diff)
@@ -239,10 +243,47 @@ def cut_data(train_set_x, train_set_y, batch_size=64):
 
     return train_set_cutted
 
-def trainNet(fc_net, train_set_x, train_set_y, batch_size=64, isCheck=False, num_epoch=500, \
-             learningRate=0.01, activate_func="ReLU"):
+def trainNet(fc_net, train_set_x, train_set_y, activate_func, isCheck=False, iterations=500, \
+             learningRate=0.01):
     # 4.初始化参数
-    parameters = init_parameters(fc_net)
+    parameters = init_parameters(fc_net, activate_func)
+    # 5.前向计算：(1)z=wx+b;(2)a=f(z)
+    costs = []  # 保存我们每次迭代计算得到的代价值
+    # 将整批数据分割成多个小批次
+    for iteration in range(0, iterations):
+        AL, cache = forward_pass(train_set_x, parameters, activate_func)  # AL=(1,209)
+        # 6.计算代价值
+        cost = compute_cost(AL, train_set_y)
+        if iteration % 500 == 0:
+            print("iteration=", iteration, "; cost=", cost)
+            costs.append(cost)
+        # 7.反向传播计算梯度
+        gradient = backward_pass(AL, parameters, cache, train_set_y, activate_func)
+        if isCheck and iteration == 2000:
+            diff = gradient_check(train_set_x, train_set_y, gradient, parameters, activate_func, check_layer=0)
+        # 8.根据梯度更新一次参数
+        parameters = update_parameters(gradient, parameters, learningRate)
+        if iteration>500 and iteration%2000 == 0:
+            print("A1[:,1].mean=", np.mean(cache['A1'][:,1]), "; A[:,1]_std = ", np.std(cache['A1'][:,1]))  #统计某一列激活值的均值和标准差
+            print("A2[:,1].mean=", np.mean(cache['A2'][:,1]), "; A[:,2]_std = ", np.std(cache['A2'][:,1]))  #统计某一列激活值的均值和标准差
+            print("A3[:,1].mean=", np.mean(cache['A3'][:,1]), "; A[:,3]_std = ", np.std(cache['A3'][:,1]))  #统计某一列激活值的均值和标准差
+            print("A4[:,1].mean=", np.mean(cache['A4'][:,1]), "; A[:,4]_std = ", np.std(cache['A4'][:,1]))  #统计某一列激活值的均值和标准差
+            print("|dW4|<1e-8: ", np.sum(abs(gradient['dW4'])<1e-8), "/", gradient['dW4'].shape[0]*gradient['dW4'].shape[1])
+            print("|dW3|<1e-8: ", np.sum(abs(gradient['dW3']) < 1e-8), "/", gradient['dW3'].shape[0] * gradient['dW3'].shape[1])
+            print("|dW2|<1e-8: ", np.sum(abs(gradient['dW2']) < 1e-8), "/", gradient['dW2'].shape[0] * gradient['dW2'].shape[1])
+            print("|dW1|<1e-8: ", np.sum(abs(gradient['dW1']) < 1e-8), "/", gradient['dW1'].shape[0] * gradient['dW1'].shape[1])
+
+
+    plt.plot(costs, 'r')
+    plt.xlabel('iterations')
+    plt.ylabel('cost')
+    plt.show()
+    return parameters
+
+def trainNet_minibatch(fc_net, train_set_x, train_set_y, activate_func, batch_size=64, isCheck=False, num_epoch=500, \
+             learningRate=0.01):
+    # 4.初始化参数
+    parameters = init_parameters(fc_net, activate_func)
     # 5.前向计算：(1)z=wx+b;(2)a=f(z)
     costs = []  # 保存我们每次迭代计算得到的代价值
     # 将整批数据分割成多个小批次
@@ -257,7 +298,7 @@ def trainNet(fc_net, train_set_x, train_set_y, batch_size=64, isCheck=False, num
                 print("epoch=", epoch, "; cost=", cost)
                 costs.append(cost)
             # 7.反向传播计算梯度
-            gradient = backward_pass(AL, parameters, cache, mini_batch_Y, activate_func="ReLU")
+            gradient = backward_pass(AL, parameters, cache, mini_batch_Y, activate_func)
             #if isCheck and iteration == 2000:
             #    diff = gradient_check(mini_batch_X, mini_batch_Y, gradient, parameters, check_layer=0)
             # 8.根据梯度更新一次参数
@@ -279,8 +320,7 @@ def trainNet(fc_net, train_set_x, train_set_y, batch_size=64, isCheck=False, num
     plt.ylabel('cost')
     plt.show()
     return parameters
-
-def predict(A0, Y, parameters, activate_func="ReLU"):
+def predict(A0, Y, parameters, activate_func):
     m = A0.shape[1]
     AL, _ = forward_pass(A0, parameters, activate_func)    # AL是(1,50)
     p = np.zeros(AL.shape)
@@ -299,11 +339,14 @@ if __name__ == '__main__':
     train_set_x = train_set_x / 255.0
     test_set_x  = test_set_x / 255.0
     # 3.定义全连接神经网络各层神经元个数，并初始化参数w和b
-    fc_net = [12288, 4, 3, 2, 1]
+    fc_net = [12288, 10, 3, 2, 1]
     #fc_net = [12288, 10, 1]
-    parameters = trainNet(fc_net, train_set_x, train_set_y, batch_size=64, isCheck=False, \
-                          num_epoch=8000, learningRate=0.01, activate_func="tanh")
-    predict(test_set_x, test_set_y,parameters, "ReLU")
+    activate_func = "tanh"
+    #parameters = trainNet(fc_net, train_set_x, train_set_y, activate_func, isCheck=False, \
+    #                      iterations=12000, learningRate=0.1)
+    parameters = trainNet_minibatch(fc_net, train_set_x, train_set_y, activate_func, batch_size=64, isCheck=False, \
+                          num_epoch=8000, learningRate=0.01)
+    predict(test_set_x, test_set_y,parameters, activate_func)
 
 
 
