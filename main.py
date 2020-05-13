@@ -198,16 +198,12 @@ def gradient_check(A0, Y, gradient, parameters, check_layer, epsilon=1e-4, activ
     # 在机器学习中，表征两个向量之间差异性的方法：L2范数（欧式距离）、余弦距离
     # L2范数：主要用于表征两个向量之间数值的差异（适合我们现在的情况）
     # 余弦距离：主要用于表征两个向量之间方向的差异
-    diff = np.sqrt(np.sum((grad_vec_slice-grad_vec_approach)**2))/(np.sqrt(np.sum((grad_vec_slice)**2))+np.sqrt(np.sum((grad_vec_approach)**2)))
+    diff = np.sqrt(np.sum((grad_vec_slice-grad_vec_approach)**2))/ \
+           (np.sqrt(np.sum((grad_vec_slice)**2))+np.sqrt(np.sum((grad_vec_approach)**2)))
     if diff > 1e-2:
         print("Maybe a mistake in your backward pass!!! diff=", diff)
     else:
         print("No mistake in your backward pass!!! diff=", diff)
-
-
-
-
-
 
 
 def update_parameters(gradients, parameters, learningRate):
@@ -218,27 +214,55 @@ def update_parameters(gradients, parameters, learningRate):
         parameters['b'+str(L)] = parameters['b'+str(L)] - learningRate*gradients['db'+str(L)]
     return parameters
 
-def trainNet(fc_net, train_set_x, train_set_y, isCheck=False, iterations=2000, learningRate=0.01, activate_func="ReLU"):
+def cut_data(train_set_x, train_set_y, batch_size=64):
+    m = train_set_x.shape[1]
+    # 1.打乱数据集
+    permutation = list(np.random.permutation(m))
+    X_shuffled = train_set_x[:,permutation]
+    Y_shuffled = train_set_y[:,permutation]
+    train_set_cutted = []
+
+    # 2.分批
+    numBatch = m//batch_size    #209//64=3
+
+    for i in range(numBatch):
+        mini_batch_X = X_shuffled[:,i*batch_size:(i+1)*batch_size]
+        mini_batch_Y = Y_shuffled[:,i*batch_size:(i+1)*batch_size]
+        mini_batch = (mini_batch_X, mini_batch_Y)
+        train_set_cutted.append(mini_batch)
+
+    if m%batch_size != 0:
+        mini_batch_X = X_shuffled[:,(i+1)*batch_size:]
+        mini_batch_Y = Y_shuffled[:,(i+1)*batch_size:]
+        mini_batch = (mini_batch_X, mini_batch_Y)
+        train_set_cutted.append(mini_batch)
+
+    return train_set_cutted
+
+def trainNet(fc_net, train_set_x, train_set_y, batch_size=64, isCheck=False, num_epoch=500, \
+             learningRate=0.01, activate_func="ReLU"):
     # 4.初始化参数
     parameters = init_parameters(fc_net)
     # 5.前向计算：(1)z=wx+b;(2)a=f(z)
     costs = []  # 保存我们每次迭代计算得到的代价值
-    for iteration in range(0, iterations):
-        AL, cache = forward_pass(train_set_x, parameters, activate_func)  # AL=(1,209)
-        #print("AL.shape=", AL.shape)
-        #print("AL=", AL)    # 矩阵元素介于0，1
-        # 6.计算代价值
-        cost = compute_cost(AL, train_set_y)
-        if iteration % 500 == 0:
-            print("iterations=", iteration, "; cost=", cost)
-            costs.append(cost)
-        # 7.反向传播计算梯度
-        gradient = backward_pass(AL, parameters, cache, train_set_y, activate_func="ReLU")
-        if isCheck and iteration == 2000:
-            diff = gradient_check(train_set_x, train_set_y, gradient, parameters, check_layer=0)
-        # 8.根据梯度更新一次参数
-        parameters = update_parameters(gradient, parameters, learningRate)
-
+    # 将整批数据分割成多个小批次
+    train_set_cutted = cut_data(train_set_x, train_set_y, batch_size)
+    for epoch in range(0, num_epoch):
+        for minibatch in train_set_cutted:  # 遍历所有批次，每个批次都更新一次参数，从而加快收敛速度
+            mini_batch_X, mini_batch_Y = minibatch
+            AL, cache = forward_pass(mini_batch_X, parameters, activate_func)  # AL=(1,209)
+            # 6.计算代价值
+            cost = compute_cost(AL, mini_batch_Y)
+            if epoch % 100 == 0:
+                print("epoch=", epoch, "; cost=", cost)
+                costs.append(cost)
+            # 7.反向传播计算梯度
+            gradient = backward_pass(AL, parameters, cache, mini_batch_Y, activate_func="ReLU")
+            #if isCheck and iteration == 2000:
+            #    diff = gradient_check(mini_batch_X, mini_batch_Y, gradient, parameters, check_layer=0)
+            # 8.根据梯度更新一次参数
+            parameters = update_parameters(gradient, parameters, learningRate)
+        '''
         if iteration>500 and iteration%2000 == 0:
             print("A1[:,1].mean=", np.mean(cache['A1'][:,1]), "; A[:,1]_std = ", np.std(cache['A1'][:,1]))  #统计某一列激活值的均值和标准差
             print("A2[:,1].mean=", np.mean(cache['A2'][:,1]), "; A[:,2]_std = ", np.std(cache['A2'][:,1]))  #统计某一列激活值的均值和标准差
@@ -248,6 +272,8 @@ def trainNet(fc_net, train_set_x, train_set_y, isCheck=False, iterations=2000, l
             print("|dW3|<1e-8: ", np.sum(abs(gradient['dW3']) < 1e-8), "/", gradient['dW3'].shape[0] * gradient['dW3'].shape[1])
             print("|dW2|<1e-8: ", np.sum(abs(gradient['dW2']) < 1e-8), "/", gradient['dW2'].shape[0] * gradient['dW2'].shape[1])
             print("|dW1|<1e-8: ", np.sum(abs(gradient['dW1']) < 1e-8), "/", gradient['dW1'].shape[0] * gradient['dW1'].shape[1])
+        '''
+
     plt.plot(costs, 'r')
     plt.xlabel('iterations')
     plt.ylabel('cost')
@@ -275,7 +301,8 @@ if __name__ == '__main__':
     # 3.定义全连接神经网络各层神经元个数，并初始化参数w和b
     fc_net = [12288, 4, 3, 2, 1]
     #fc_net = [12288, 10, 1]
-    parameters = trainNet(fc_net, train_set_x, train_set_y, isCheck=False, iterations=8000, learningRate=0.01, activate_func="tanh")
+    parameters = trainNet(fc_net, train_set_x, train_set_y, batch_size=64, isCheck=False, \
+                          num_epoch=8000, learningRate=0.01, activate_func="tanh")
     predict(test_set_x, test_set_y,parameters, "ReLU")
 
 
