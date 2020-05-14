@@ -34,6 +34,7 @@ def loadDataset():
     print("train_set_y.shape = ", train_set_y.shape)
     test_set_y = test_set_y.reshape(1, -1)
 
+
     return train_set_x, train_set_y, test_set_x, test_set_y
 
 def init_parameters(fc_net, activate_function):
@@ -130,16 +131,22 @@ def forward_pass(A0, parameters, active_func):   # 前向计算
 
     return A, cache
 
-def compute_cost(AL, Y):
+def compute_cost(AL, Y, epsilon=1e-8):
     m = Y.shape[1]  # Y = (1, 209)
-    cost = (1/m)*np.sum((1/2)*(AL-Y)*(AL-Y))
-    return cost
+    # 平方差误差
+    #cost = (1/m)*np.sum((1/2)*(AL-Y)*(AL-Y))
+    # 交叉熵误差
+    cost = (1/m)*(-1*(np.dot(Y, np.log(AL+epsilon).T)+np.dot((1-Y), np.log(1-AL+epsilon).T)))
+    return cost.reshape(1)
 
 def backward_pass(AL, parameters, cache, Y, activate_func):
     m = Y.shape[1]  # 样本总数
     gradient = {}   # 保持各层参数梯度值
     layerNum = len(parameters)//2
-    dZL = (AL-Y)*(AL*(1-AL))    # 获取最末层误差信号 dZL.shape= (1,209)
+    # 平方差误差导数
+    #dZL = (AL-Y)*(AL*(1-AL))    # 获取最末层误差信号 dZL.shape= (1,209)
+    # 交叉熵误差导数
+    dZL = -Y*(1-AL)+(1-Y)*AL
     gradient['dW'+str(layerNum)] = (1/m)*np.dot(dZL,cache['A'+str(layerNum-1)].T)
     gradient['db'+str(layerNum)] = (1/m)*np.sum(dZL, axis=1, keepdims=True)
     for L in reversed(range(1,layerNum)):   # 遍历[3,2,1]
@@ -348,9 +355,9 @@ def trainNet(fc_net, train_set_x, train_set_y, activate_func, isCheck=False, ite
 def trainNet_minibatch(fc_net, train_set_x, train_set_y, activate_func, batch_size=64, isCheck=False, num_epoch=500, \
              learningRate=0.01):
     # 4.初始化参数
-    #parameters = init_parameters(fc_net, activate_func)
+    parameters = init_parameters(fc_net, activate_func)
     #parameters, v = init_parameters_momentum(fc_net, activate_func)
-    parameters, s = init_parameters_RMSProp(fc_net, activate_func)
+    #parameters, s = init_parameters_RMSProp(fc_net, activate_func)
     # 5.前向计算：(1)z=wx+b;(2)a=f(z)
     costs = []  # 保存我们每次迭代计算得到的代价值
     # 将整批数据分割成多个小批次
@@ -361,7 +368,7 @@ def trainNet_minibatch(fc_net, train_set_x, train_set_y, activate_func, batch_si
             AL, cache = forward_pass(mini_batch_X, parameters, activate_func)  # AL=(1,209)
             # 6.计算代价值
             cost = compute_cost(AL, mini_batch_Y)
-            if epoch % 100 == 0:
+            if epoch % 500 == 0:
                 print("epoch=", epoch, "; cost=", cost)
                 costs.append(cost)
             # 7.反向传播计算梯度
@@ -369,9 +376,9 @@ def trainNet_minibatch(fc_net, train_set_x, train_set_y, activate_func, batch_si
             #if isCheck and iteration == 2000:
             #    diff = gradient_check(mini_batch_X, mini_batch_Y, gradient, parameters, check_layer=0)
             # 8.根据梯度更新一次参数
-            # parameters = update_parameters(gradient, parameters, learningRate)
+            parameters = update_parameters(gradient, parameters, learningRate)
             #parameters, v = update_parameters_with_momentum(gradient, parameters, learningRate, v)
-            parameters, s = update_parameters_with_RMSProp(gradient, parameters, learningRate, s)
+            #parameters, s = update_parameters_with_RMSProp(gradient, parameters, learningRate, s)
         '''
         if iteration>500 and iteration%2000 == 0:
             print("A1[:,1].mean=", np.mean(cache['A1'][:,1]), "; A[:,1]_std = ", np.std(cache['A1'][:,1]))  #统计某一列激活值的均值和标准差
@@ -414,7 +421,7 @@ if __name__ == '__main__':
     #parameters = trainNet(fc_net, train_set_x, train_set_y, activate_func, isCheck=False, \
     #                      iterations=8000, learningRate=0.1)
     parameters = trainNet_minibatch(fc_net, train_set_x, train_set_y, activate_func, batch_size=64, isCheck=False, \
-                          num_epoch=8000, learningRate=0.0001)
+                          num_epoch=8000, learningRate=0.01)
     predict(test_set_x, test_set_y,parameters, activate_func)
 
 
